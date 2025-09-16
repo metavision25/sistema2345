@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Controle de Vendas Avançado</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"></script>
+
+<style>
+:root {
+  --primary: #4f46e5;
+  --primary-dark: #4338ca;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --light-bg: #f9fafb;
+  --card-bg: #ffffff;
+  --radius: 12px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body { font-family: "Inter", Arial, sans-serif; background: var(--light-bg); color: #111827; }
+
+header { background: var(--primary); color: white; padding: 16px; text-align: center; font-size: 1.5rem; font-weight: 600; }
+
+.container { max-width: 950px; margin: 20px auto; padding: 20px; }
+
+.panel { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+.panel div { flex:1 1 200px; background: var(--card-bg); padding: 16px; border-radius: var(--radius); box-shadow: 0 2px 6px rgba(0,0,0,0.08); text-align:center; }
+
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
+  background: var(--card-bg); padding: 16px; border-radius: var(--radius); box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 24px; }
+
+input, select, button { padding: 12px; border: 1px solid #ddd; border-radius: var(--radius); font-size: 1rem; width: 100%; }
+
+input:focus, select:focus { border-color: var(--primary); outline:none; }
+
+button { background: var(--primary); color: white; font-weight: 600; cursor: pointer; border: none; }
+button:hover { background: var(--primary-dark); }
+
+h2 { font-size:1.3rem; margin-bottom:12px; }
+
+.card { background: var(--card-bg); padding: 16px; border-radius: var(--radius);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin: 12px 0; transition: transform 0.2s; }
+.card:hover { transform: translateY(-2px); }
+
+.status { font-weight: bold; margin-top: 6px; display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.9rem; }
+.pago { background: #dcfce7; color: var(--success); }
+.pendente { background: #fee2e2; color: var(--danger); }
+
+.btn-pago, .btn-quit { margin-top: 12px; padding: 10px 14px; border: none; border-radius: 8px;
+  font-size: 0.9rem; cursor: pointer; font-weight: 600; transition:0.2s; }
+
+.btn-pago { background: var(--success); color:white; }
+.btn-pago:hover { background:#15803d; }
+
+.btn-quit { background: var(--danger); color:white; }
+.btn-quit:hover { background:#b91c1c; }
+
+.filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px; align-items:center; }
+.filters select, .filters input { flex:1 1 150px; }
+.filters button { flex:0 0 100px; }
+
+@media(max-width:600px) { .form, .filters { grid-template-columns: 1fr; flex-direction:column; } header { font-size:1.2rem; } .panel{flex-direction:column;} }
+</style>
+</head>
+<body>
+<header>📒 Controle de Vendas Avançado</header>
+<div class="container">
+
+  <div class="panel">
+    <div>Total Vendas: R$ <span id="totalVendas">0.00</span></div>
+    <div>Total Dívidas: R$ <span id="totalDividas">0.00</span></div>
+    <div>Total Pago: R$ <span id="totalPago">0.00</span></div>
+    <div>Total Pendente: R$ <span id="totalPendente">0.00</span></div>
+  </div>
+
+  <div class="form">
+    <input id="cliente" placeholder="Cliente">
+    <input id="produto" placeholder="Produto">
+    <input id="valor" type="number" placeholder="Valor (R$)">
+    <select id="tipo">
+      <option value="venda">Venda</option>
+      <option value="divida">Dívida</option>
+    </select>
+    <button onclick="adicionarRegistro()">➕ Adicionar</button>
+  </div>
+
+  <div class="filters">
+    <select id="filtroTipo">
+      <option value="todos">Todos os Tipos</option>
+      <option value="venda">Venda</option>
+      <option value="divida">Dívida</option>
+    </select>
+
+    <select id="filtroStatus">
+      <option value="todos">Todos os Status</option>
+      <option value="pago">Pago</option>
+      <option value="pendente">Pendente</option>
+    </select>
+
+    <input type="text" id="pesquisaCliente" placeholder="Pesquisar Cliente">
+
+    <button onclick="listarRegistros()">🔍 Pesquisar</button>
+  </div>
+
+  <h2>📌 Registros</h2>
+  <div id="lista"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+import { getDatabase, ref, push, onValue, update, remove } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBXpl2fkYhiMMF58ythJNtdGB1b7hMK-zA",
+  authDomain: "anotacoes-d857c.firebaseapp.com",
+  databaseURL: "https://anotacoes-d857c-default-rtdb.firebaseio.com",
+  projectId: "anotacoes-d857c",
+  storageBucket: "anotacoes-d857c.firebasestorage.app",
+  messagingSenderId: "657621124509",
+  appId: "1:657621124509:web:74313a1fbd0371571b5b74"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const lista = document.getElementById("lista");
+
+function adicionarRegistro() {
+  const cliente = document.getElementById("cliente").value.trim();
+  const produto = document.getElementById("produto").value.trim();
+  const valor = parseFloat(document.getElementById("valor").value);
+  const tipo = document.getElementById("tipo").value;
+
+  if(!cliente || !produto || !valor){ alert("Preencha todos os campos!"); return; }
+
+  push(ref(db, 'registros'), {
+    cliente, produto, valor, tipo, pago:false, data: new Date().toISOString()
+  });
+
+  document.getElementById("cliente").value="";
+  document.getElementById("produto").value="";
+  document.getElementById("valor").value="";
+  listarRegistros();
+}
+
+function listarRegistros(){
+  lista.innerHTML="";
+  const filtroTipo = document.getElementById("filtroTipo").value;
+  const filtroStatus = document.getElementById("filtroStatus").value;
+  const pesquisa = document.getElementById("pesquisaCliente").value.toLowerCase();
+
+  let totalV=0, totalD=0, totalP=0, totalPend=0;
+
+  onValue(ref(db,'registros'), (snapshot)=>{
+    const data = snapshot.val();
+    if(data){
+      Object.keys(data).forEach(key=>{
+        const r = data[key];
+
+        // Totais completos
+        if(r.tipo==="venda") totalV += r.valor;
+        if(r.tipo==="divida") totalD += r.valor;
+        if(r.pago) totalP += r.valor;
+        else totalPend += r.valor;
+
+        // Filtros
+        if(filtroTipo!=="todos" && r.tipo!==filtroTipo) return;
+        if(filtroStatus!=="todos" && ((r.pago?"pago":"pendente")!==filtroStatus)) return;
+        if(pesquisa && !r.cliente.toLowerCase().includes(pesquisa)) return;
+
+        const div = document.createElement("div");
+        div.className="card";
+        div.innerHTML=`
+          <b>👤 ${r.cliente}</b><br>
+          🥟 ${r.produto} — R$ ${r.valor.toFixed(2)}<br>
+          📂 Tipo: ${r.tipo}<br>
+          <span class="status ${r.pago?"pago":"pendente"}">${r.pago?"✅ Pago":"⏳ Pendente"}</span><br>
+          ${!r.pago ? `<button class="btn-pago" onclick="marcarPago('${key}')">✔ Marcar como Pago</button>`:""}
+          ${!r.pago && r.tipo==="divida" ? `<button class="btn-quit" onclick="quitarDivida('${key}')">💰 Quitar Dívida</button>`:""}
+        `;
+        lista.appendChild(div);
+      });
+    }
+
+    // Atualiza painel
+    document.getElementById("totalVendas").textContent = totalV.toFixed(2);
+    document.getElementById("totalDividas").textContent = totalD.toFixed(2);
+    document.getElementById("totalPago").textContent = totalP.toFixed(2);
+    document.getElementById("totalPendente").textContent = totalPend.toFixed(2);
+  });
+}
+
+function marcarPago(id){ update(ref(db,'registros/'+id), {pago:true}); listarRegistros(); }
+function quitarDivida(id){ remove(ref(db,'registros/'+id)); listarRegistros(); }
+
+window.adicionarRegistro = adicionarRegistro;
+window.marcarPago = marcarPago;
+window.quitarDivida = quitarDivida;
+window.listarRegistros = listarRegistros;
+
+listarRegistros();
+</script>
+</body>
+</html>
